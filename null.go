@@ -2,79 +2,86 @@ package null
 
 import (
 	"bytes"
+	"database/sql"
+	"database/sql/driver"
 	"encoding/json"
 )
 
-const (
-	hasValue int = iota // 0: 有值
-	noValue             // 1: 无值
-)
-
 // Null
-// 1 has 2 nil -> 有值 Value
-// 1 nil 2 has -> 值为 Null
-// 1 nil 2 nil -> 未定义值 Undefined
-type Null[T any] [2]*T
+// 0 has -> 有值 Value
+// 0 nil -> 值为 Null
+// len 0 -> 未定义值 Undefined
+type Null[T any] []*T
 
 func New[T any](val T) Null[T] {
-	return Null[T]{&val, nil}
+	return Null[T]{&val}
 }
 
 // Nullable 空值
 func Nullable[T any]() Null[T] {
-	return Null[T]{nil, new(T)}
+	return Null[T]{nil}
 }
 
 // Undefined 未定义
 func Undefined[T any]() Null[T] {
-	return Null[T]{nil, nil}
+	return make(Null[T], 0)
 }
 
 func (t *Null[T]) Set(val T) {
-	t[hasValue] = &val
+	if *t == nil {
+		*t = Null[T]{&val}
+	} else {
+		(*t)[0] = &val
+	}
 }
 
-func (t *Null[T]) Get() (T, bool) {
-	if t[hasValue] == nil {
+func (t Null[T]) Get() (T, bool) {
+	if len(t) == 0 {
 		var empty T
-		if t[noValue] != nil {
-			return empty, false
-		} else {
-			return empty, false
-		}
+		return empty, false
 	}
-	return *t[hasValue], true
+	if t[0] == nil {
+		var empty T
+		return empty, false
+	}
+	return *t[0], true
 }
 
 // MustGet .
-func (t *Null[T]) MustGet() T {
-	if t[hasValue] == nil {
+func (t Null[T]) MustGet() T {
+	if len(t) == 0 || t[0] == nil {
 		panic("no value available")
 	}
-	return *t[hasValue]
+	return *t[0]
 }
 
 func (t *Null[T]) SetNull() {
-	*t = Null[T]{nil, new(T)}
+	*t = Null[T]{nil}
 }
 
-func (t *Null[T]) IsNull() bool {
-	return t[hasValue] == nil && t[noValue] != nil
+// IsNull 只有长度为1
+// 值为nil的时候为true
+func (t Null[T]) IsNull() bool {
+	if len(t) == 0 {
+		return false
+	}
+	return t[0] == nil
 }
 
 func (t *Null[T]) SetUndefined() {
-	*t = Null[T]{nil, nil}
+	*t = Null[T]{}
 }
 
-func (t *Null[T]) IsUndefined() bool {
-	return t[hasValue] == nil && t[noValue] == nil
+// IsUndefined 切片长度为0的时候为true
+func (t Null[T]) IsUndefined() bool {
+	return len(t) == 0
 }
 
 func (t Null[T]) MarshalJSON() ([]byte, error) {
-	if t[hasValue] == nil {
-		return json.Marshal(nil)
+	if len(t) == 0 || t[0] == nil {
+		return []byte("null"), nil
 	}
-	return json.Marshal(t[hasValue])
+	return json.Marshal(t[0])
 }
 
 func (t *Null[T]) UnmarshalJSON(data []byte) error {
@@ -82,9 +89,42 @@ func (t *Null[T]) UnmarshalJSON(data []byte) error {
 		t.SetNull()
 		return nil
 	}
-	if err := json.Unmarshal(data, &t[hasValue]); err == nil {
+
+	var v T
+	if err := json.Unmarshal(data, &v); err == nil {
+		t.Set(v)
 		return nil
 	} else {
 		return err
 	}
+}
+
+func (t Null[T]) sqlNull() sql.Null[T] {
+	v, b := t.Get()
+	return sql.Null[T]{
+		V:     v,
+		Valid: b,
+	}
+}
+
+func (t *Null[T]) Scan(value any) error {
+	null := t.sqlNull()
+	return null.Scan(value)
+}
+
+//// GormDataType 返回类型
+//func (t Null[T]) GormDataType() string {
+//	if len(t) == 0 || t[0] == nil {
+//		return string(schema.Int)
+//	}
+//	return
+//}
+
+func (t Null[T]) Value() (driver.Value, error) {
+	v, b := t.Get()
+	if b {
+		return v, nil
+	}
+	// 返回 nil 会尝试结构体第一个对象的类型
+	return int64(0), nil
 }

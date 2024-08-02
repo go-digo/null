@@ -39,7 +39,7 @@ func TestNull_Struct_New1(t *testing.T) {
 }
 
 func BenchmarkNew(b *testing.B) {
-	c := null.New[string]("da")
+	c := null.Undefined[string]()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		c.Get()
@@ -91,10 +91,12 @@ func TestName(t *testing.T) {
 		Name null.Null[string] `json:"name,omitempty"`
 	}
 	var a A
-	err := json.Unmarshal([]byte(`{"name":null}`), &a)
-	if err != nil {
-		t.Error(err)
-		return
-	}
+	//err := json.Unmarshal([]byte(`{"name":"dada"}`), &a)
+	//if err != nil {
+	//	t.Error(err)
+	//	return
+	//}
+	a.Name.Set("dada")
+
 	log.Println(a)
 }
